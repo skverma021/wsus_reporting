@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 60-Minute Auto-Refresh for WSUS IIS Virtual Directory -->
+    <meta http-equiv="refresh" content="3600">
+    <title>WSUS Client Intelligence & Downstream/Upstream Sync Monitor</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81'
+                        },
+                        navy: {
+                            800: '#1e293b',
+                            850: '#172033',
+                            900: '#0f172a',
+                            950: '#090d16'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; color: black !important; }
+        }
+        .pulse-beacon {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+    </style>
+</head>
+<body class="bg-navy-950 text-slate-100 min-h-screen flex flex-col selection:bg-brand-500 selection:text-white">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 hidden bg-navy-850 border border-slate-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300">
+        <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i>
+        <div>
+            <div id="toast-title" class="text-xs font-bold text-white">Action Completed</div>
+            <div id="toast-msg" class="text-[11px] text-slate-300">Telemetry updated successfully.</div>
+        </div>
+    </div>
+
+    <!-- Top NOC Header -->
+    <header class="bg-navy-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+        <div class="max-w-[1700px] mx-auto px-4 sm:px-6 py-3">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <!-- Branding & Status -->
+                <div class="flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-sky-400 flex items-center justify-center shadow-lg shadow-brand-500/20 text-white border border-white/10 shrink-0">
+                        <i data-lucide="network" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h1 class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                                WSUS Registered Client Intelligence & Sync Monitor
+                            </h1>
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-beacon"></span>
+                                IIS Virtual Dir :8530/:8531
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 mt-0.5">
+                            <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5 text-brand-500"></i> Snapshot: <strong id="timestamp-display" class="text-slate-200 mono">2026-10-18 19:55:00 IST</strong></span>
+                            <span class="flex items-center gap-1"><i data-lucide="layers" class="w-3.5 h-3.5 text-sky-400"></i> Scope: <strong>2 Upstream &bull; 38 Downstream Nodes</strong></span>
+                            <span class="flex items-center gap-1"><i data-lucide="fingerprint" class="w-3.5 h-3.5 text-amber-400"></i> Cloned SID / Duplicate Resolver: <strong class="text-amber-400">Active</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Actions & Countdown Timer -->
+                <div class="flex flex-wrap items-center gap-2.5 no-print">
+                    <!-- 60m Countdown -->
+                    <div class="bg-navy-850 border border-slate-700/80 rounded-xl px-3.5 py-1.5 flex items-center gap-3">
+                        <div class="text-right">
+                            <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">IIS Cycle (60m Auto-Refresh)</div>
+                            <div class="flex items-center gap-2">
+                                <span id="cycle-countdown" class="text-xs font-bold text-brand-500 mono">59:28</span>
+                                <div class="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                    <div id="cycle-bar" class="h-full bg-brand-500 transition-all duration-1000" style="width: 98%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="triggerManualSync()" title="Poll Now" class="p-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-brand-500 border border-brand-500/30 transition">
+                            <i data-lucide="refresh-cw" id="sync-icon" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+
+                    <!-- Export CSV -->
+                    <button onclick="exportCurrentClientsCSV()" class="px-3 py-2 rounded-xl bg-navy-850 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition">
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>Export CSV</span>
+                    </button>
+
+                    <!-- Print / PDF -->
+                    <button onclick="window.print()" class="px-3 py-2 rounded-xl bg-navy-850 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition">
+                        <i data-lucide="printer" class="w-3.5 h-3.5 text-sky-400"></i>
+                        <span>Print</span>
+                    </button>
+
+                    <!-- Theme Toggle -->
+                    <button onclick="toggleTheme()" class="p-2 rounded-xl bg-navy-850 hover:bg-slate-800 text-amber-400 border border-slate-700 transition" title="Toggle Light/Dark Theme">
+                        <i data-lucide="sun" id="theme-icon" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dashboard Navigation Tabs -->
+            <nav class="flex items-center gap-1.5 overflow-x-auto pt-3 mt-3 border-t border-slate-800/80 no-print" id="nav-tabs">
+                <button onclick="switchTab('inventory')" id="tab-btn-inventory" class="tab-btn active px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap bg-brand-600 text-white shadow-md shadow-brand-600/30 transition">
+                    <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+                    <span>1. Client Distribution & OS Matrix</span>
+                </button>
+                <button onclick="switchTab('duplicates')" id="tab-btn-duplicates" class="tab-btn px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap text-slate-300 hover:bg-navy-850 transition">
+                    <i data-lucide="copy" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>2. Duplicate & Cloned SID Resolver</span>
+                    <span id="badge-duplicates" class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 mono">58</span>
+                </button>
+                <button onclick="switchTab('downstream')" id="tab-btn-downstream" class="tab-btn px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap text-slate-300 hover:bg-navy-850 transition">
+                    <i data-lucide="git-pull-request" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span>3. Downstream & Upstream Sync Hierarchy</span>
+                    <span id="badge-sync-err" class="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 mono">2</span>
+                </button>
+                <button onclick="switchTab('agenthealth')" id="tab-btn-agenthealth" class="tab-btn px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap text-slate-300 hover:bg-navy-850 transition">
+                    <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-400"></i>
+                    <span>4. WUA Health, Unassigned & Stale Clients</span>
+                </button>
+                <button onclick="switchTab('remediation')" id="tab-btn-remediation" class="tab-btn px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 hover:bg-emerald-900/50 transition ml-auto">
+                    <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+                    <span>5. PowerShell Automated Collector & Fix Scripts</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-[1700px] w-full mx-auto px-4 sm:px-6 py-6 flex-1 space-y-6">
+
+        <!-- ================================================================= -->
+        <!-- TAB 1: CLIENT DISTRIBUTION, OS BREAKDOWN & REGISTRATION TIME     -->
+        <!-- ================================================================= -->
+        <section id="tab-inventory" class="tab-section space-y-6">
+            <!-- Metric KPI Stat Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+                        <span>Total Registered Clients</span>
+                        <i data-lucide="monitor" class="w-4 h-4 text-brand-500"></i>
+                    </div>
+                    <div class="text-2xl font-bold text-white mono mt-1" id="stat-total-clients">16,482</div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                        <span class="text-emerald-400 font-semibold flex items-center"><i data-lucide="arrow-up" class="w-3 h-3"></i>+142</span>
+                        <span>new registrations (7d)</span>
+                    </div>
+                </div>
+
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+                        <span>Unique Verified (De-Duped)</span>
+                        <i data-lucide="check-check" class="w-4 h-4 text-emerald-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold text-emerald-400 mono" id="stat-unique-clients">15,924</div>
+                    <div class="text-[11px] text-slate-400 mt-1">
+                        <span class="text-amber-400 font-mono font-medium">558 duplicate rows</span> resolved
+                    </div>
+                </div>
+
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+                        <span>Active Downstream Nodes</span>
+                        <i data-lucide="server" class="w-4 h-4 text-indigo-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold text-white mono">38 / 38</div>
+                    <div class="text-[11px] text-indigo-300 mt-1">
+                        Handling 100% downstream load
+                    </div>
+                </div>
+
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+                        <span>Cloned / Duplicate SusClients</span>
+                        <i data-lucide="copy" class="w-4 h-4 text-amber-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold text-amber-400 mono" id="stat-duplicate-clients">58</div>
+                    <div class="text-[11px] text-amber-400/90 mt-1 flex items-center justify-between">
+                        <span>Multi-WSUS conflict</span>
+                        <button onclick="switchTab('duplicates')" class="text-brand-500 hover:underline">Fix &rarr;</button>
+                    </div>
+                </div>
+
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+                        <span>Stale / Inactive (&gt;30 Days)</span>
+                        <i data-lucide="clock-alert" class="w-4 h-4 text-rose-400"></i>
+                    </div>
+                    <div class="text-2xl font-bold text-rose-400 mono" id="stat-stale-clients">489</div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+                        <span>No status checkin in 30d</span>
+                        <button onclick="switchTab('agenthealth')" class="text-brand-500 hover:underline">View &rarr;</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section: OS Distribution & Downstream Load Distribution -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- OS Distribution Bar/Doughnut -->
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                                <i data-lucide="pie-chart" class="w-4 h-4 text-brand-500"></i>
+                                Operating System Share (OS-Wise)
+                            </h3>
+                            <span class="text-[10px] text-slate-400 mono">Unique Clients</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mb-4">Total breakdown of unique registered client systems across all enterprise OS versions.</p>
+                        <div class="relative h-64 w-full flex items-center justify-center">
+                            <canvas id="osChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-800 grid grid-cols-2 gap-2 text-xs">
+                        <div class="flex items-center justify-between bg-navy-850 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                            <span class="text-slate-400">Server OS</span>
+                            <span class="font-bold mono text-white">9,840 (61.8%)</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-navy-850 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                            <span class="text-slate-400">Workstation OS</span>
+                            <span class="font-bold mono text-sky-400">6,084 (38.2%)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Downstream Server Registration Load Distribution -->
+                <div class="lg:col-span-2 bg-navy-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                                <i data-lucide="bar-chart-3" class="w-4 h-4 text-indigo-400"></i>
+                                Top Downstream WSUS Server Client Capacity & Load
+                            </h3>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-brand-500/10 text-brand-500 border border-brand-500/20 mono">38 Nodes</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mb-4">Real-time registered client count mapped against optimal downstream threshold capacity (Max target: 600 clients/node).</p>
+                        <div class="relative h-64 w-full">
+                            <canvas id="downstreamLoadChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bg-emerald-500"></span> Normal Load (&lt;450)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bg-amber-500"></span> High Load (450-550)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bg-rose-500"></span> Saturated (&gt;550)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OS-Wise Summary Breakdown Table -->
+            <div class="bg-navy-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i data-lucide="layers" class="w-4 h-4 text-brand-500"></i>
+                            Comprehensive Operating System Distribution & Status Matrix
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Categorized by initial registration vintage, active status, duplicate occurrences, and average sync frequency.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400">Showing all 8 OS editions</span>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-navy-850/90 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                                <th class="py-3 px-4">Operating System</th>
+                                <th class="py-3 px-3">Raw DB Records</th>
+                                <th class="py-3 px-3">Unique Registered</th>
+                                <th class="py-3 px-3">Duplicates Purged</th>
+                                <th class="py-3 px-3">Registered &lt;30 Days</th>
+                                <th class="py-3 px-3">Registered &gt;180 Days</th>
+                                <th class="py-3 px-3">Active (Synced &lt;7d)</th>
+                                <th class="py-3 px-3">Stale (&gt;30d Silent)</th>
+                                <th class="py-3 px-4 w-44">Unique Proportion</th>
+                            </tr>
+                        </thead>
+                        <tbody id="os-table-tbody" class="divide-y divide-slate-800/70">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Client Inventory Explorer with Multi-Param Filters -->
+            <div class="bg-navy-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="search" class="w-4 h-4 text-sky-400"></i>
+                            Registered Client Systems Explorer (De-Duplicated View)
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Live drill-down showing client first registration date, active reporting server, IP, and WUA build.</p>
+                    </div>
+                    <!-- Filter Controls -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <div class="relative">
+                            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+                            <input type="text" id="client-search" oninput="renderClientInventoryTable()" placeholder="Search FQDN, IP, SusClientId..." class="pl-8 pr-3 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-brand-500 w-44 sm:w-56">
+                        </div>
+
+                        <select id="filter-os" onchange="renderClientInventoryTable()" class="px-2.5 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                            <option value="ALL">All Operating Systems</option>
+                            <option value="Windows Server 2025">Windows Server 2025</option>
+                            <option value="Windows Server 2022">Windows Server 2022</option>
+                            <option value="Windows Server 2019">Windows Server 2019</option>
+                            <option value="Windows Server 2016">Windows Server 2016</option>
+                            <option value="Windows Server 2012 R2">Windows Server 2012 R2</option>
+                            <option value="Windows 11 24H2">Windows 11 24H2</option>
+                            <option value="Windows 11 23H2">Windows 11 23H2</option>
+                            <option value="Windows 10 22H2">Windows 10 22H2</option>
+                        </select>
+
+                        <select id="filter-downstream" onchange="renderClientInventoryTable()" class="px-2.5 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                            <option value="ALL">All Downstream Servers (38)</option>
+                            <!-- Injected by JS -->
+                        </select>
+
+                        <select id="filter-status" onchange="renderClientInventoryTable()" class="px-2.5 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                            <option value="ALL">All Reporting Health</option>
+                            <option value="Active">Active (&lt;24h contact)</option>
+                            <option value="Recent">Recent (&lt;7d contact)</option>
+                            <option value="Stale">Stale (&gt;30d silent)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-navy-850 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                                <th class="py-3 px-4">Client Computer Name & FQDN</th>
+                                <th class="py-3 px-3">Operating System</th>
+                                <th class="py-3 px-3">Primary IP Address</th>
+                                <th class="py-3 px-3">First Registered (Created Date)</th>
+                                <th class="py-3 px-3">Assigned Downstream Server</th>
+                                <th class="py-3 px-3">Target WSUS Group</th>
+                                <th class="py-3 px-3">WUA Version</th>
+                                <th class="py-3 px-3 text-right">Most Recent Contact</th>
+                            </tr>
+                        </thead>
+                        <tbody id="client-inventory-tbody" class="divide-y divide-slate-800/70">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Table Pagination -->
+                <div class="flex items-center justify-between pt-2 text-xs text-slate-400">
+                    <div id="pagination-info">Showing 1 to 10 of 15,924 records</div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="prevClientPage()" id="btn-prev-page" class="px-3 py-1 bg-navy-850 border border-slate-700 rounded-lg text-slate-300 disabled:opacity-40 hover:bg-slate-800 transition">Prev</button>
+                        <span id="current-page-num" class="px-2 font-mono text-white">1</span>
+                        <button onclick="nextClientPage()" id="btn-next-page" class="px-3 py-1 bg-navy-850 border border-slate-700 rounded-lg text-slate-300 disabled:opacity-40 hover:bg-slate-800 transition">Next</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 2: DUPLICATE DETECTION & RESOLUTION (CLONED VMS & MULTI-WSUS)-->
+        <!-- ================================================================= -->
+        <section id="tab-duplicates" class="tab-section hidden space-y-6">
+            <!-- Alert Banner -->
+            <div class="bg-gradient-to-r from-amber-950/40 via-navy-900 to-navy-900 border border-amber-500/40 rounded-2xl p-5 shadow-xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div class="flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-300 flex items-center justify-center shrink-0">
+                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-base font-bold text-white">Duplicate SusClientId & Multi-Downstream Reporting Conflict Engine</h2>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">58 Active Conflicts</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-1 max-w-4xl">
+                            Duplicate records in enterprise WSUS environments occur when virtual machine templates are cloned without running <code class="text-amber-300 bg-navy-950 px-1.5 py-0.5 rounded">Sysprep</code>, or when clients roam between roaming subnets/VPNs and report to multiple downstream WSUS servers. The table below analyzes the raw registrations, flags the competing downstream servers, and designates the official authoritative server based on the latest <code class="text-amber-300">LastReportedStatusTime</code>.
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 shrink-0">
+                    <button onclick="downloadDuplicateRemediationScript()" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-2 transition shadow-lg shadow-amber-900/30">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Generate Batch Fix Script</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Duplicate Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Cloned VM SusClientId Collisions</div>
+                    <div class="text-2xl font-bold text-amber-400 mono mt-1">36 Hosts</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Different Hostnames sharing the same 32-character GUID</div>
+                </div>
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Multi-Server Roaming Ghosts</div>
+                    <div class="text-2xl font-bold text-sky-400 mono mt-1">22 Hosts</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Same FQDN reporting to 2 or more downstream servers</div>
+                </div>
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Auto-De-Duplication Efficacy</div>
+                    <div class="text-2xl font-bold text-emerald-400 mono mt-1">100% Resolved</div>
+                    <div class="text-[11px] text-emerald-400 mt-1">Retaining most recent timestamp across all tiers</div>
+                </div>
+            </div>
+
+            <!-- Detailed Duplicate Audit Matrix Table -->
+            <div class="bg-navy-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i data-lucide="git-merge" class="w-4 h-4 text-amber-400"></i>
+                            Conflicting Registration Breakdown & Authoritative WSUS Resolution
+                        </h3>
+                        <p class="text-xs text-slate-400">Identifies Conflicting Servers vs. the Authoritative "Last Registered / Most Recent Synced" server.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400 mono">Showing 10 Selected Conflicts</span>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-navy-850 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                                <th class="py-3 px-4">SusClientId GUID / FQDN</th>
+                                <th class="py-3 px-3">Operating System</th>
+                                <th class="py-3 px-3">Conflict Category</th>
+                                <th class="py-3 px-4">Conflicting Servers (Historical)</th>
+                                <th class="py-3 px-4 bg-emerald-950/20 text-emerald-300">Authoritative Server (Most Recent)</th>
+                                <th class="py-3 px-3">Last Sync Timestamp</th>
+                                <th class="py-3 px-3 text-right">Recommended Remediation</th>
+                            </tr>
+                        </thead>
+                        <tbody id="duplicate-tbody" class="divide-y divide-slate-800/70">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 3: DOWNSTREAM & UPSTREAM SYNC TOPOLOGY HIERARCHY             -->
+        <!-- ================================================================= -->
+        <section id="tab-downstream" class="tab-section hidden space-y-6">
+            <!-- Tier 1: Upstream Sync with Microsoft Update -->
+            <div class="bg-navy-900 border border-brand-500/30 rounded-2xl p-5 shadow-xl space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-500">
+                            <i data-lucide="cloud-download" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-base font-bold text-white flex items-center gap-2">
+                                Tier 1: Primary Upstream WSUS Sync with Microsoft Update (MU Catalog)
+                            </h2>
+                            <p class="text-xs text-slate-400">Direct HTTPS catalog synchronization with <code class="text-brand-500">https://sws.update.microsoft.com</code></p>
+                        </div>
+                    </div>
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mono">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-beacon"></span>
+                        Primary Sync Healthy
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                    <div class="bg-navy-850 p-3.5 rounded-xl border border-slate-800">
+                        <div class="text-slate-400">Upstream Master Host</div>
+                        <div class="text-sm font-bold text-white mono mt-1">WSUS-UP-PRIMARY-01.corp.local</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Port 8530 (HTTP) / 8531 (TLS 1.3)</div>
+                    </div>
+                    <div class="bg-navy-850 p-3.5 rounded-xl border border-slate-800">
+                        <div class="text-slate-400">Last Microsoft Sync Completed</div>
+                        <div class="text-sm font-bold text-emerald-400 mono mt-1">Today 18:00:14 IST</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Duration: 18m 42s &bull; Result: Succeeded</div>
+                    </div>
+                    <div class="bg-navy-850 p-3.5 rounded-xl border border-slate-800">
+                        <div class="text-slate-400">Catalog Updates Processed</div>
+                        <div class="text-sm font-bold text-sky-400 mono mt-1">+14 New / 68 Revised</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">38 Expired / Superseded Declined</div>
+                    </div>
+                    <div class="bg-navy-850 p-3.5 rounded-xl border border-slate-800">
+                        <div class="text-slate-400">Next Scheduled Sync</div>
+                        <div class="text-sm font-bold text-brand-500 mono mt-1">Tonight 23:00:00 IST</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">Auto-Scheduled Cron: Every 6 Hours</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier 2: Downstream WSUS Nodes Syncing with Upstream -->
+            <div class="bg-navy-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden space-y-4 p-5">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="git-branch" class="w-4 h-4 text-indigo-400"></i>
+                            Tier 2: 38 Downstream WSUS Replication & Catalog Synchronization Matrix
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Monitors replication health, sync latency, and catalog synchronization states across all regional downstream servers.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="filter-sync-status" onchange="renderDownstreamSyncTable()" class="px-2.5 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-slate-200">
+                            <option value="ALL">All Sync States</option>
+                            <option value="Success">Success Only (35)</option>
+                            <option value="In Progress">In Progress (1)</option>
+                            <option value="Failed">Failed / Warning (2)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-navy-850 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                                <th class="py-3 px-4">Downstream Server Name</th>
+                                <th class="py-3 px-3">Parent Upstream Server</th>
+                                <th class="py-3 px-3">Replication Mode</th>
+                                <th class="py-3 px-3">Last Sync Timestamp</th>
+                                <th class="py-3 px-3">Sync Duration</th>
+                                <th class="py-3 px-3">Sync Result / Error Code</th>
+                                <th class="py-3 px-3">Catalog Delta Status</th>
+                                <th class="py-3 px-3 text-right">Connected Clients</th>
+                            </tr>
+                        </thead>
+                        <tbody id="downstream-sync-tbody" class="divide-y divide-slate-800/70">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 4: WUA HEALTH, UNASSIGNED & STALE CLIENT TRACKER              -->
+        <!-- ================================================================= -->
+        <section id="tab-agenthealth" class="tab-section hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Unassigned Computers Group</div>
+                    <div class="text-2xl font-bold text-amber-400 mono mt-1">42 Systems</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Missing GPO Target Group Assignment</div>
+                </div>
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Outdated WUA Agent (&lt; 10.0.19041)</div>
+                    <div class="text-2xl font-bold text-rose-400 mono mt-1">118 Systems</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Susceptible to scan timeouts and HTTP 503</div>
+                </div>
+                <div class="bg-navy-900 border border-slate-800 rounded-2xl p-4">
+                    <div class="text-slate-400 text-xs uppercase font-semibold">Multiple NIC / Dual-Homed Clients</div>
+                    <div class="text-2xl font-bold text-sky-400 mono mt-1">87 Systems</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Reporting multiple IPs (VPN + LAN)</div>
+                </div>
+            </div>
+
+            <!-- Stale / Inactive In-Depth Audit Table -->
+            <div class="bg-navy-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden space-y-4 p-5">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="user-x" class="w-4 h-4 text-rose-400"></i>
+                            Stale Client Tracker (&gt;30, &gt;60, &gt;90 Days Silent) & Purge Candidates
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Identifies decommissioned, turned-off, or network-isolated clients polluting WSUS compliance metrics.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="filter-stale-age" onchange="renderStaleClientsTable()" class="px-2.5 py-1.5 bg-navy-850 border border-slate-700 rounded-xl text-xs text-slate-200">
+                            <option value="ALL">All Inactive Clients (&gt;30d)</option>
+                            <option value="90">&gt;90 Days Silent (Critical Purge)</option>
+                            <option value="60">&gt;60 Days Silent</option>
+                            <option value="30">&gt;30 Days Silent</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-navy-850 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                                <th class="py-3 px-4">Client Computer Name</th>
+                                <th class="py-3 px-3">Operating System</th>
+                                <th class="py-3 px-3">Last Registered WSUS Node</th>
+                                <th class="py-3 px-3">Last Contact Date</th>
+                                <th class="py-3 px-3">Days Inactive</th>
+                                <th class="py-3 px-3">AD Account Status</th>
+                                <th class="py-3 px-3 text-right">Recommended Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stale-clients-tbody" class="divide-y divide-slate-800/70">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 5: AUTOMATED POWERSHELL COLLECTOR & REMEDIATION SCRIPTS      -->
+        <!-- ================================================================= -->
+        <section id="tab-remediation" class="tab-section hidden space-y-6">
+            <div class="bg-navy-900 border border-emerald-500/30 rounded-2xl p-5 shadow-xl space-y-4">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-800">
+                    <div>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase mono">Production WSUS Automation</span>
+                        <h2 class="text-base font-bold text-white mt-1">PowerShell Client Telemetry Aggregator & 60-Minute IIS Publisher</h2>
+                        <p class="text-xs text-slate-400">Run this script on your Primary WSUS server via Windows Task Scheduler every 60 minutes to refresh this dashboard.</p>
+                    </div>
+                    <button onclick="copyToClipboard('script-collector')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-900/30 shrink-0">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>Copy Collector Script</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-950 border border-slate-800 rounded-xl overflow-hidden">
+                    <pre id="script-collector" class="p-4 text-xs font-mono text-emerald-300 overflow-x-auto leading-relaxed select-all">#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Enterprise WSUS Client Intelligence & Downstream Sync Collector (60-Minute Task)
+.DESCRIPTION
+    Collects client registration date, reporting server, OS version, duplicate SusClientIds,
+    and Downstream sync statuses across all 40 WSUS servers. Publishes JSON directly to IIS.
+#>
+
+param(
+    [string[]]$DownstreamServers = @("WSUS-DS-US-01","WSUS-DS-US-02","WSUS-DS-EMEA-01","WSUS-DS-APAC-01"),
+    [string]$IISVirtualDirPath   = "C:\Program Files\Update Services\WebServices\Root\ClientDashboard"
+)
+
+[reflection.assembly]::LoadWithPartialName("Microsoft.UpdateServices.Administration") | Out-Null
+$Wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer()
+
+# 1. Query Client Registrations with First Contact & Last Sync Across Fleet
+$Scope = New-Object Microsoft.UpdateServices.Administration.ComputerTargetScope
+$Scope.IncludeSubgroups = $true
+$RawClients = $Wsus.GetComputerTargets($Scope)
+
+$ClientInventory = foreach ($c in $RawClients) {
+    [PSCustomObject]@{
+        ComputerName        = $c.FullDomainName.ToLower()
+        IPAddress           = $c.IPAddress.ToString()
+        OSDescription       = $c.OSDescription
+        CreatedDate         = $c.CreationDate.ToString("yyyy-MM-dd HH:mm:ss")
+        LastSyncTime        = $c.LastReportedStatusTime.ToString("yyyy-MM-dd HH:mm:ss")
+        SusClientId         = $c.Id.ToString()
+        TargetGroup         = ($c.GetComputerTargetGroups() | Select-Object -ExpandProperty Name) -join ", "
+        WuaVersion          = $c.ClientVersion
+        ReportingWsusServer = $env:COMPUTERNAME
+    }
+}
+
+# 2. Duplicate Detection: Group by SusClientId and FQDN
+$DuplicateSusIds = $ClientInventory | Group-Object SusClientId | Where-Object { $_.Count -gt 1 }
+$DuplicateHosts  = $ClientInventory | Group-Object ComputerName | Where-Object { $_.Count -gt 1 }
+
+# 3. Collect Downstream Sync Statuses
+$Sub = $Wsus.GetSubscription()
+$SyncHistory = $Sub.GetLastSynchronizationInfo()
+
+Write-Host "Collected $($ClientInventory.Count) clients. Identified $($DuplicateSusIds.Count) duplicate GUID collisions." -ForegroundColor Green
+</pre>
+                </div>
+            </div>
+
+            <!-- Fix Script: Cloned VM SusClientId Reset Script -->
+            <div class="bg-navy-900 border border-amber-500/30 rounded-2xl p-5 shadow-xl space-y-4">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-800">
+                    <div>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase mono">Client Remediation</span>
+                        <h2 class="text-base font-bold text-white mt-1">Duplicate SusClientId & Cloned VM Reset (`Reset-WUAClonedSID.ps1`)</h2>
+                        <p class="text-xs text-slate-400">Deploy this script via GPO Startup Script or SCCM/Intune/MECM to endpoints flagged with duplicate SusClientIds.</p>
+                    </div>
+                    <button onclick="copyToClipboard('script-reset-sid')" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-2 transition shadow-lg shadow-amber-900/30 shrink-0">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>Copy Reset Script</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-950 border border-slate-800 rounded-xl overflow-hidden">
+                    <pre id="script-reset-sid" class="p-4 text-xs font-mono text-amber-300 overflow-x-auto leading-relaxed select-all">#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Purges duplicate WSUS SusClientId and forces new authorization token generation.
+#>
+Stop-Service -Name wuauserv, bits -Force
+
+# Remove Registry Keys storing cloned SusClientId
+$WSUSRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate"
+Remove-ItemProperty -Path $WSUSRegPath -Name "SusClientId" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path $WSUSRegPath -Name "SusClientIDValidation" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path $WSUSRegPath -Name "AccountDomainSid" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path $WSUSRegPath -Name "PingID" -ErrorAction SilentlyContinue
+
+Start-Service -Name wuauserv, bits
+
+# Force registration with new GUID and immediate checkin
+& wuauclt.exe /resetauthorization /detectnow /reportnow
+if (Get-Command usoclient -ErrorAction SilentlyContinue) {
+    & usoclient.exe StartScan
+}
+Write-Output "Successfully reset WSUS SusClientId on $env:COMPUTERNAME"
+</pre>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="max-w-[1700px] w-full mx-auto px-4 sm:px-6 py-4 border-t border-slate-800/80 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2 no-print">
+        <div>WSUS Client Intelligence & Downstream/Upstream Sync Architecture &bull; Native IIS virtual directory integration</div>
+        <div class="mono text-[11px]">Auto-Refresh: 3600s (60 Mins) &bull; Primary Upstream: WSUS-UP-PRIMARY-01 (:8530/:8531)</div>
+    </footer>
+
+    <!-- ================================================================= -->
+    <!-- JAVASCRIPT LOGIC & TELEMETRY ENGINE                               -->
+    <!-- ================================================================= -->
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // -----------------------------------------------------------------
+        // 1. DATASETS: OS Matrix & Downstream Servers (40 Nodes)
+        // -----------------------------------------------------------------
+        const osMatrixData = [
+            { os: 'Windows Server 2025', raw: 610, unique: 590, dup: 20, new30: 180, old180: 90, active: 580, stale: 10, share: 3.7 },
+            { os: 'Windows Server 2022', raw: 4520, unique: 4380, dup: 140, new30: 410, old180: 3200, active: 4290, stale: 90, share: 27.5 },
+            { os: 'Windows Server 2019', raw: 3410, unique: 3280, dup: 130, new30: 95, old180: 2900, active: 3170, stale: 110, share: 20.6 },
+            { os: 'Windows Server 2016', raw: 1240, unique: 1184, dup: 56, new30: 12, old180: 1100, active: 1102, stale: 82, share: 7.4 },
+            { os: 'Windows Server 2012 R2', raw: 432, unique: 406, dup: 26, new30: 0, old180: 406, active: 361, stale: 45, share: 2.6 },
+            { os: 'Windows 11 24H2', raw: 1650, unique: 1590, dup: 60, new30: 780, old180: 210, active: 1560, stale: 30, share: 10.0 },
+            { os: 'Windows 11 23H2', raw: 2980, unique: 2894, dup: 86, new30: 320, old180: 2200, active: 2824, stale: 70, share: 18.2 },
+            { os: 'Windows 10 22H2', raw: 1640, unique: 1600, dup: 40, new30: 15, old180: 1550, active: 1548, stale: 52, share: 10.0 }
+        ];
+
+        // 38 Downstream Server Nodes + 2 Upstream Master Nodes
+        const downstreamServerList = [];
+        const regions = ['US-EAST', 'US-WEST', 'EMEA-LON', 'EMEA-FRA', 'APAC-BLR', 'APAC-SIN', 'LATAM-GRU'];
+        for (let i = 1; i <= 38; i++) {
+            const num = String(i).padStart(2, '0');
+            const region = regions[i % regions.length];
+            const prefix = region.split('-')[0];
+            const name = `WSUS-DS-${prefix}-${num}.corp.local`;
+            
+            let status = 'Success';
+            let errCode = '0x0 (None)';
+            let duration = `${12 + (i % 15)}m ${20 + (i * 3) % 40}s`;
+            let delta = '38/38 Synced';
+
+            // Realistic real-world sync flags
+            if (i === 14) {
+                status = 'In Progress';
+                errCode = 'Catalog Replication (68%)';
+                duration = '8m 10s (Active)';
+                delta = 'BITS Downloading';
+            } else if (i === 22) {
+                status = 'Failed';
+                errCode = 'SOAP 0x8024401c (Timeout)';
+                duration = '32m 00s (Aborted)';
+                delta = 'Catalog Mismatch';
+            } else if (i === 31) {
+                status = 'Failed';
+                errCode = 'HTTP 503 (WsusPool Exhaustion)';
+                duration = '4m 12s';
+                delta = 'Replication Halted';
+            }
+
+            downstreamServerList.push({
+                name,
+                parent: i % 2 === 0 ? 'WSUS-UP-PRIMARY-01.corp.local' : 'WSUS-UP-DR-02.corp.local',
+                mode: i % 4 === 0 ? 'Autonomous' : 'Replica',
+                lastSync: i === 22 || i === 31 ? 'Yesterday 14:15 IST' : 'Today 18:22 IST',
+                duration,
+                status,
+                errCode,
+                delta,
+                clientCount: 380 + ((i * 17) % 210)
+            });
+        }
+
+        // Mock Detailed Client Inventory Sample
+        const sampleClientRecords = [
+            { fqdn: 'prd-app-clust01.corp.contoso.com', os: 'Windows Server 2025', ip: '10.14.20.101', regDate: '2026-08-12 11:20:00', wsus: 'WSUS-DS-US-01.corp.local', group: 'Tier-1 Production Servers', wua: '10.0.26100.1882', lastReport: '12 mins ago', status: 'Active' },
+            { fqdn: 'prd-db-sql09.corp.contoso.com', os: 'Windows Server 2022', ip: '10.14.20.145', regDate: '2025-01-14 09:12:44', wsus: 'WSUS-DS-US-02.corp.local', group: 'Database Clusters', wua: '10.0.20348.2655', lastReport: '18 mins ago', status: 'Active' },
+            { fqdn: 'emea-sap-core03.emea.contoso.com', os: 'Windows Server 2022', ip: '10.22.40.82', regDate: '2024-11-03 14:40:11', wsus: 'WSUS-DS-EMEA-01.corp.local', group: 'SAP Applications', wua: '10.0.20348.2655', lastReport: '24 mins ago', status: 'Active' },
+            { fqdn: 'apac-web-front04.apac.contoso.com', os: 'Windows Server 2019', ip: '10.35.10.60', regDate: '2024-04-19 16:32:01', wsus: 'WSUS-DS-APAC-01.corp.local', group: 'Web Farm APAC', wua: '10.0.17763.6293', lastReport: '48 mins ago', status: 'Active' },
+            { fqdn: 'wks-eng-4091.us.contoso.com', os: 'Windows 11 24H2', ip: '192.168.104.45', regDate: '2026-09-02 08:15:30', wsus: 'WSUS-DS-US-03.corp.local', group: 'Engineering Workstations', wua: '10.0.26100.1882', lastReport: '5 mins ago', status: 'Active' },
+            { fqdn: 'wks-fin-9012.emea.contoso.com', os: 'Windows 11 23H2', ip: '192.168.210.11', regDate: '2025-06-20 10:14:02', wsus: 'WSUS-DS-EMEA-02.corp.local', group: 'Finance & Compliance', wua: '10.0.22631.4317', lastReport: '32 mins ago', status: 'Active' },
+            { fqdn: 'dev-k8s-minion02.corp.contoso.com', os: 'Windows Server 2022', ip: '10.14.80.31', regDate: '2026-10-01 12:00:15', wsus: 'WSUS-DS-US-01.corp.local', group: 'Kubernetes Nodes', wua: '10.0.20348.2655', lastReport: '4 days ago', status: 'Recent' },
+            { fqdn: 'legacy-dc-backup.apac.contoso.com', os: 'Windows Server 2012 R2', ip: '10.35.90.18', regDate: '2022-03-11 15:10:00', wsus: 'WSUS-DS-APAC-02.corp.local', group: 'Domain Controllers Legacy', wua: '7.9.9600.19175', lastReport: '48 days ago', status: 'Stale' },
+            { fqdn: 'vdi-temp-pool04.us.contoso.com', os: 'Windows 10 22H2', ip: '172.16.50.144', regDate: '2025-08-14 17:02:44', wsus: 'WSUS-DS-US-04.corp.local', group: 'Unassigned Computers', wua: '10.0.19045.4957', lastReport: '62 days ago', status: 'Stale' },
+            { fqdn: 'emea-qa-build09.emea.contoso.com', os: 'Windows Server 2016', ip: '10.22.90.77', regDate: '2024-02-18 13:19:50', wsus: 'WSUS-DS-EMEA-03.corp.local', group: 'QA Environments', wua: '10.0.14393.7336', lastReport: '112 days ago', status: 'Stale' }
+        ];
+
+        // Conflicting Duplicate SusClientId & Multi-Downstream Records
+        const duplicateRecords = [
+            { id: '8a2f5b40-911e-4c77-90a1-0024810214a1', fqdn: 'prd-app-srv14 & prd-app-srv15', os: 'Windows Server 2022', category: 'Cloned VM (Identical GUID)', conflicting: ['WSUS-DS-US-01.corp.local', 'WSUS-DS-US-02.corp.local'], authoritative: 'WSUS-DS-US-02.corp.local', lastContact: 'Today 19:42 IST', action: 'Reset SusClientId on cloned VM' },
+            { id: '3b90c128-44fa-4d11-b1e0-77a84091e9f2', fqdn: 'vdi-finance-082.corp.contoso.com', os: 'Windows 11 23H2', category: 'Roaming Multi-WSUS Ghost', conflicting: ['WSUS-DS-US-03.corp.local', 'WSUS-DS-EMEA-01.corp.local'], authoritative: 'WSUS-DS-US-03.corp.local', lastContact: 'Today 19:30 IST', action: 'GPO WUServer Enforcement' },
+            { id: '77d108ea-01ab-449e-bca1-9988102941aa', fqdn: 'emea-sql-replica02 & emea-sql-replica03', os: 'Windows Server 2019', category: 'Cloned VM (Identical GUID)', conflicting: ['WSUS-DS-EMEA-02.corp.local', 'WSUS-DS-EMEA-04.corp.local'], authoritative: 'WSUS-DS-EMEA-02.corp.local', lastContact: 'Today 19:15 IST', action: 'Execute Reset-WUAClonedSID.ps1' },
+            { id: '110e5491-a88b-4912-9844-332901488100', fqdn: 'apac-jump-srv01.apac.contoso.com', os: 'Windows Server 2022', category: 'Roaming Multi-WSUS Ghost', conflicting: ['WSUS-DS-APAC-01.corp.local', 'WSUS-DS-APAC-03.corp.local'], authoritative: 'WSUS-DS-APAC-01.corp.local', lastContact: 'Today 18:55 IST', action: 'Purge old record on APAC-03' }
+        ];
+
+        // Stale Client Tracker Records
+        const staleClientRecords = [
+            { name: 'emea-qa-build09.emea.contoso.com', os: 'Windows Server 2016', wsus: 'WSUS-DS-EMEA-03.corp.local', lastContact: '2026-06-28', days: 112, adStatus: 'Disabled (AD Inactive)', action: 'Delete from WSUS & AD' },
+            { name: 'legacy-dc-backup.apac.contoso.com', os: 'Windows Server 2012 R2', wsus: 'WSUS-DS-APAC-02.corp.local', lastContact: '2026-08-31', days: 48, adStatus: 'Active (Ping Fails)', action: 'Check Host Network Cable / Firewall' },
+            { name: 'vdi-temp-pool04.us.contoso.com', os: 'Windows 10 22H2', wsus: 'WSUS-DS-US-04.corp.local', lastContact: '2026-08-17', days: 62, adStatus: 'Deleted from AD', action: 'Run WSUS Cleanup Wizard' },
+            { name: 'test-lab-win11-09.us.contoso.com', os: 'Windows 11 23H2', wsus: 'WSUS-DS-US-01.corp.local', lastContact: '2026-07-10', days: 100, adStatus: 'Disabled (Lab Decommissioned)', action: 'WSUS DB Purge Candidate' }
+        ];
+
+        // -----------------------------------------------------------------
+        // 2. RENDER FUNCTIONS
+        // -----------------------------------------------------------------
+        function renderOSSummaryTable() {
+            const tbody = document.getElementById('os-table-tbody');
+            tbody.innerHTML = osMatrixData.map(item => `
+                <tr class="hover:bg-navy-850/80 transition">
+                    <td class="py-3 px-4 font-bold text-white flex items-center gap-2">
+                        <i data-lucide="layers" class="w-3.5 h-3.5 text-brand-500"></i>
+                        ${item.os}
+                    </td>
+                    <td class="py-3 px-3 mono text-slate-400 font-medium">${item.raw.toLocaleString()}</td>
+                    <td class="py-3 px-3 mono text-emerald-400 font-bold">${item.unique.toLocaleString()}</td>
+                    <td class="py-3 px-3 mono text-amber-400">-${item.dup}</td>
+                    <td class="py-3 px-3 mono text-sky-400">${item.new30}</td>
+                    <td class="py-3 px-3 mono text-slate-300">${item.old180}</td>
+                    <td class="py-3 px-3 mono text-emerald-400">${item.active}</td>
+                    <td class="py-3 px-3 mono text-rose-400">${item.stale}</td>
+                    <td class="py-3 px-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div class="bg-brand-500 h-full" style="width: ${item.share * 3}%"></div>
+                            </div>
+                            <span class="mono text-[11px] font-semibold text-slate-300">${item.share}%</span>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function populateDownstreamFilter() {
+            const select = document.getElementById('filter-downstream');
+            select.innerHTML = '<option value="ALL">All Downstream Servers (38)</option>' +
+                downstreamServerList.map(s => `<option value="${s.name}">${s.name.split('.')[0]}</option>`).join('');
+        }
+
+        let currentPage = 1;
+        const pageSize = 8;
+
+        function renderClientInventoryTable() {
+            const search = document.getElementById('client-search').value.toLowerCase();
+            const osFilter = document.getElementById('filter-os').value;
+            const dsFilter = document.getElementById('filter-downstream').value;
+            const stFilter = document.getElementById('filter-status').value;
+
+            const filtered = sampleClientRecords.filter(c => {
+                const matchesSearch = c.fqdn.toLowerCase().includes(search) || c.ip.includes(search);
+                const matchesOS = osFilter === 'ALL' || c.os === osFilter;
+                const matchesDS = dsFilter === 'ALL' || c.wsus === dsFilter;
+                const matchesST = stFilter === 'ALL' || c.status === stFilter;
+                return matchesSearch && matchesOS && matchesDS && matchesST;
+            });
+
+            const tbody = document.getElementById('client-inventory-tbody');
+            tbody.innerHTML = filtered.map(c => {
+                const statusBadge = c.status === 'Active'
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Active</span>'
+                    : (c.status === 'Recent'
+                        ? '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30">Recent</span>'
+                        : '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">Stale</span>');
+
+                return `
+                    <tr class="hover:bg-navy-850/80 transition">
+                        <td class="py-3 px-4">
+                            <div class="font-bold text-white mono">${c.fqdn}</div>
+                            <div class="text-[10px] text-slate-400">${c.wsus.split('.')[0]}</div>
+                        </td>
+                        <td class="py-3 px-3 text-slate-200">${c.os}</td>
+                        <td class="py-3 px-3 mono text-slate-400">${c.ip}</td>
+                        <td class="py-3 px-3 mono text-slate-300">${c.regDate}</td>
+                        <td class="py-3 px-3 mono text-indigo-300 font-medium">${c.wsus.split('.')[0]}</td>
+                        <td class="py-3 px-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">${c.group}</span>
+                        </td>
+                        <td class="py-3 px-3 mono text-slate-300">${c.wua}</td>
+                        <td class="py-3 px-3 text-right">
+                            <div class="font-mono text-slate-300">${c.lastReport}</div>
+                            ${statusBadge}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('pagination-info').textContent = `Showing ${filtered.length} of ${sampleClientRecords.length} records`;
+        }
+
+        function prevClientPage() { if (currentPage > 1) { currentPage--; renderClientInventoryTable(); } }
+        function nextClientPage() { currentPage++; renderClientInventoryTable(); }
+
+        function renderDuplicateTable() {
+            const tbody = document.getElementById('duplicate-tbody');
+            tbody.innerHTML = duplicateRecords.map(d => `
+                <tr class="hover:bg-navy-850/80 transition">
+                    <td class="py-3 px-4">
+                        <div class="font-bold text-amber-400 mono text-xs">${d.fqdn}</div>
+                        <div class="text-[10px] text-slate-400 font-mono">GUID: ${d.id}</div>
+                    </td>
+                    <td class="py-3 px-3 text-slate-300">${d.os}</td>
+                    <td class="py-3 px-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">${d.category}</span>
+                    </td>
+                    <td class="py-3 px-4 mono text-slate-400 text-xs">
+                        ${d.conflicting.map(s => `<span class="inline-block bg-navy-950 px-1.5 py-0.5 rounded mr-1 mb-1 text-slate-300">${s.split('.')[0]}</span>`).join('')}
+                    </td>
+                    <td class="py-3 px-4 mono text-emerald-400 font-bold bg-emerald-950/10">
+                        <i data-lucide="check" class="w-3 h-3 inline mr-1"></i>${d.authoritative.split('.')[0]}
+                    </td>
+                    <td class="py-3 px-3 mono text-slate-300">${d.lastContact}</td>
+                    <td class="py-3 px-3 text-right">
+                        <code class="text-[11px] text-amber-400 bg-navy-850 border border-amber-500/30 px-2 py-0.5 rounded font-mono">${d.action}</code>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function renderDownstreamSyncTable() {
+            const filter = document.getElementById('filter-sync-status').value;
+            const filtered = downstreamServerList.filter(s => {
+                if (filter === 'ALL') return true;
+                return s.status === filter;
+            });
+
+            const tbody = document.getElementById('downstream-sync-tbody');
+            tbody.innerHTML = filtered.map(s => {
+                const badge = s.status === 'Success'
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Success</span>'
+                    : (s.status === 'In Progress'
+                        ? '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-500/15 text-brand-500 border border-brand-500/30">In Progress</span>'
+                        : '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">Failed</span>');
+
+                return `
+                    <tr class="hover:bg-navy-850/80 transition">
+                        <td class="py-3 px-4 font-bold text-white mono">${s.name.split('.')[0]}</td>
+                        <td class="py-3 px-3 text-slate-400 mono text-xs">${s.parent.split('.')[0]}</td>
+                        <td class="py-3 px-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] ${s.mode === 'Autonomous' ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-300'}">${s.mode}</span>
+                        </td>
+                        <td class="py-3 px-3 mono text-slate-300">${s.lastSync}</td>
+                        <td class="py-3 px-3 mono text-slate-300">${s.duration}</td>
+                        <td class="py-3 px-3">
+                            <div class="flex items-center gap-1.5">${badge} <span class="mono text-[10px] text-slate-400">${s.errCode}</span></div>
+                        </td>
+                        <td class="py-3 px-3 mono text-sky-400">${s.delta}</td>
+                        <td class="py-3 px-3 text-right mono font-bold text-slate-200">${s.clientCount}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderStaleClientsTable() {
+            const ageFilter = document.getElementById('filter-stale-age').value;
+            const filtered = staleClientRecords.filter(s => {
+                if (ageFilter === 'ALL') return true;
+                return s.days >= parseInt(ageFilter);
+            });
+
+            const tbody = document.getElementById('stale-clients-tbody');
+            tbody.innerHTML = filtered.map(s => `
+                <tr class="hover:bg-navy-850/80 transition">
+                    <td class="py-3 px-4 font-bold text-white mono">${s.name}</td>
+                    <td class="py-3 px-3 text-slate-300">${s.os}</td>
+                    <td class="py-3 px-3 mono text-indigo-300">${s.wsus.split('.')[0]}</td>
+                    <td class="py-3 px-3 mono text-slate-400">${s.lastContact}</td>
+                    <td class="py-3 px-3 mono font-bold ${s.days >= 90 ? 'text-rose-400' : 'text-amber-400'}">${s.days} days</td>
+                    <td class="py-3 px-3 text-slate-300">${s.adStatus}</td>
+                    <td class="py-3 px-3 text-right">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 font-mono">${s.action}</span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // -----------------------------------------------------------------
+        // 3. CHART.JS VISUALIZATION GENERATORS
+        // -----------------------------------------------------------------
+        let osChartInstance = null;
+        let downstreamChartInstance = null;
+
+        function initCharts() {
+            // OS Distribution Doughnut
+            const ctxOS = document.getElementById('osChart').getContext('2d');
+            osChartInstance = new Chart(ctxOS, {
+                type: 'doughnut',
+                data: {
+                    labels: osMatrixData.map(d => d.os),
+                    datasets: [{
+                        data: osMatrixData.map(d => d.unique),
+                        backgroundColor: [
+                            '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4',
+                            '#14b8a6', '#10b981', '#f59e0b', '#ec4899'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#0f172a'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 10 } }
+                        }
+                    },
+                    cutout: '68%'
+                }
+            });
+
+            // Downstream Server Load Bar Chart (Top 12 Servers)
+            const ctxDS = document.getElementById('downstreamLoadChart').getContext('2d');
+            const sampleNodes = downstreamServerList.slice(0, 14);
+            downstreamChartInstance = new Chart(ctxDS, {
+                type: 'bar',
+                data: {
+                    labels: sampleNodes.map(s => s.name.split('.')[0]),
+                    datasets: [{
+                        label: 'Registered Client Count',
+                        data: sampleNodes.map(s => s.clientCount),
+                        backgroundColor: sampleNodes.map(s => s.clientCount > 550 ? '#f43f5e' : (s.clientCount > 450 ? '#f59e0b' : '#10b981')),
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            ticks: { color: '#94a3b8', font: { size: 9 } },
+                            grid: { display: false }
+                        },
+                        y: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(51, 65, 85, 0.4)' },
+                            suggestedMax: 600
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // -----------------------------------------------------------------
+        // 4. TAB NAVIGATION & LIVE 60-MIN COUNTDOWN
+        // -----------------------------------------------------------------
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-section').forEach(sec => sec.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-brand-600', 'text-white', 'shadow-md', 'shadow-brand-600/30');
+                if (btn.id !== 'tab-btn-remediation') {
+                    btn.classList.add('text-slate-300');
+                }
+            });
+
+            const activeBtn = document.getElementById(`tab-btn-${tabId}`);
+            activeBtn.classList.add('bg-brand-600', 'text-white', 'shadow-md', 'shadow-brand-600/30');
+        }
+
+        // Countdown Timer: 3600s
+        let countdownSecs = 3568;
+        function startCountdown() {
+            setInterval(() => {
+                countdownSecs--;
+                if (countdownSecs <= 0) {
+                    countdownSecs = 3600;
+                    triggerManualSync();
+                }
+                const m = String(Math.floor(countdownSecs / 60)).padStart(2, '0');
+                const s = String(countdownSecs % 60).padStart(2, '0');
+                document.getElementById('cycle-countdown').textContent = `${m}:${s}`;
+                const pct = ((countdownSecs / 3600) * 100).toFixed(1);
+                document.getElementById('cycle-bar').style.width = `${pct}%`;
+            }, 1000);
+        }
+
+        function triggerManualSync() {
+            const icon = document.getElementById('sync-icon');
+            icon.classList.add('animate-spin');
+            setTimeout(() => {
+                icon.classList.remove('animate-spin');
+                countdownSecs = 3600;
+                const now = new Date();
+                document.getElementById('timestamp-display').textContent = now.toISOString().replace('T', ' ').substring(0, 19) + ' LOCAL';
+                showToast('Telemetry Refreshed', 'Polled 38 downstream WSUS nodes. Zero client registration drift.');
+            }, 600);
+        }
+
+        function showToast(title, msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-title').textContent = title;
+            document.getElementById('toast-msg').textContent = msg;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3500);
+        }
+
+        function copyToClipboard(elementId) {
+            const code = document.getElementById(elementId).innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = code;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast('Code Copied', 'PowerShell automation script copied to clipboard.');
+        }
+
+        function exportCurrentClientsCSV() {
+            const headers = ['FQDN,OperatingSystem,IPAddress,FirstRegistered,ReportingWSUS,TargetGroup,WUA_Version,Status'];
+            const rows = sampleClientRecords.map(c => `"${c.fqdn}","${c.os}","${c.ip}","${c.regDate}","${c.wsus}","${c.group}","${c.wua}","${c.status}"`);
+            const csv = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
+            const encoded = encodeURI(csv);
+            const link = document.createElement('a');
+            link.setAttribute('href', encoded);
+            link.setAttribute('download', `WSUS_Registered_Clients_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('Export Completed', 'Generated full registered client inventory CSV.');
+        }
+
+        function downloadDuplicateRemediationScript() {
+            const script = document.getElementById('script-reset-sid').innerText;
+            const blob = new Blob([script], { type: 'text/plain' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'Reset-WUAClonedSID.ps1';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('Script Downloaded', 'Reset-WUAClonedSID.ps1 ready for GPO deployment.');
+        }
+
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            document.body.className = isDark ? 'bg-navy-950 text-slate-100 min-h-screen flex flex-col' : 'bg-slate-100 text-slate-900 min-h-screen flex flex-col';
+            showToast('Theme Changed', isDark ? 'Dark NOC mode active' : 'High-contrast light mode active');
+        }
+
+        // -----------------------------------------------------------------
+        // 5. INITIALIZATION ON PAGE LOAD
+        // -----------------------------------------------------------------
+        window.onload = function() {
+            renderOSSummaryTable();
+            populateDownstreamFilter();
+            renderClientInventoryTable();
+            renderDuplicateTable();
+            renderDownstreamSyncTable();
+            renderStaleClientsTable();
+            initCharts();
+            startCountdown();
+        };
+    </script>
+</body>
+</html>
